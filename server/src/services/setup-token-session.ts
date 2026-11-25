@@ -1680,6 +1680,7 @@ export function createDbSetupTokenCleanupStore(db: Db): SetupTokenCleanupStore {
             eq(adapterAuthSessions.companyId, key.companyId),
             eq(adapterAuthSessions.startedByUserId, key.ownerUserId),
             eq(adapterAuthSessions.adapterType, key.adapterType as AgentAdapterType),
+            sql`${adapterAuthSessions.connectionMethod} is distinct from 'local_subscription'`,
             notInArray(adapterAuthSessions.status, [...SETUP_TOKEN_TERMINAL_STATES]),
             gt(adapterAuthSessions.expiresAt, new Date(now)),
           ),

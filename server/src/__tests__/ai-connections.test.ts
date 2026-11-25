@@ -3,6 +3,7 @@ import { connectionIntentService } from "../services/connection-intents.js";
 import { connectionIntentDeliveryService } from "../services/connection-intent-delivery.js";
 import { issueRecoveryActionService } from "../services/issue-recovery-actions.js";
 import { localAiLoginService } from "../services/local-ai-login.js";
+import { createDbSetupTokenCleanupStore } from "../services/setup-token-session.js";
 // Background plan observations have their own provider-fixture coverage. Runtime
 // auth tests must not send the selected fixture credentials to a real provider.
 vi.mock("../services/subscription-refresh.js", () => ({ refreshSubscriptionConnection: vi.fn().mockResolvedValue(undefined) }));
@@ -2588,6 +2589,10 @@ console.log(JSON.stringify({ type: "result", subtype: "success", result: "hello"
     const owner = `restart-${provider}`;
     const intent = { provider, method: "subscription", ownership: "personal", name: "Interrupted sign-in", allAgents: false, agentIds: [] } as const;
     await db.insert(adapterAuthSessions).values({ id, publicSessionId: id, companyId, environmentId: environment.id, startedByUserId: owner, adapterType: provider === "anthropic" ? "claude_local" : "codex_local", aiConnection: { ...intent, agentIds: [] }, connectionMethod: "local_subscription", status: "waiting_for_user", expiresAt: new Date(Date.now() + 60_000) });
+    if (provider === "anthropic") {
+      const store = createDbSetupTokenCleanupStore(db);
+      await expect(store.findActiveDurable({ companyId, ownerUserId: owner, adapterType: "claude_local" }, Date.now())).resolves.toBeNull();
+    }
     const reader = vi.spyOn(localCredentials, "readVerifiedLocalAiCredentialDetails").mockRejectedValue(new Error("No credential yet"));
     try {
       const login = localAiLoginService(db);

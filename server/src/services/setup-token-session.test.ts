@@ -1366,6 +1366,14 @@ describeEmbeddedPostgres("durable setup-token cleanup store (embedded postgres)"
     return rows[0];
   }
 
+  it("finds a durable setup-token session for its owner", async () => {
+    const scope = await seedScope();
+    await insertRecord(scope, "awaiting_code", Date.now() + 60_000);
+    const store = createDbSetupTokenCleanupStore(db);
+    await expect(store.findActiveDurable(scope, Date.now())).resolves.toMatchObject({ sessionId: scope.sessionId });
+    await expect(store.findActiveDurable({ ...scope, ownerUserId: "another-owner" }, Date.now())).resolves.toBeNull();
+  });
+
   it("records the non-secret cleanup record on the unified table and reads it back", async () => {
     const scope = await seedScope();
     await insertRecord(scope, "starting", Date.now() + 60_000);
