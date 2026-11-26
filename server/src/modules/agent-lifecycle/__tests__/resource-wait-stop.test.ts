@@ -132,6 +132,44 @@ const support = external ? { supported: true } : await getEmbeddedPostgresTestSu
     expect(await agentExecutionsHaveStopped(db, [agent.id])).toBe(true);
   });
 
+  // A system cancellation before adapter entry (for example a stale task
+  // continuation) gets the executor's settled-preparation receipt but no
+  // acknowledged Stop. That receipt alone must let a pause finish.
+  async function settledPreparationFixture() {
+    const { agent, run } = await fixture("continuation_task_ownership_changed", "settled");
+    const [changed] = await db.update(heartbeatRuns).set({ resultJson: {
+      cancellation: { source: "control_plane", expected: true, initiator: { type: "system" },
+        reason: "continuation_task_ownership_changed", recordedAt: "2000-01-01T00:00:01Z" },
+      executionRecovery: { kind: "bootstrap", providerWorkStarted: false, preparationSettledAt: "2000-01-01T00:00:02Z" },
+    } }).where(eq(heartbeatRuns.id, run.id)).returning();
+    return { agent, run: changed };
+  }
+
+  it("finishes a pause after a conversation-adapter run settled before adapter entry", async () => {
+    const { agent } = await settledPreparationFixture();
+    const work = configureAgentLifecycle(db, {
+      requiredPluginIds: async () => [], runPlugin: async () => "complete",
+      runHost: createLifecycleDriver(db, {} as never).runHost,
+    });
+    try {
+      await createAgentLifecycle(db).pauseAgent(agent.id);
+      await work.process(agent.id);
+      const [paused] = await db.select().from(agents).where(eq(agents.id, agent.id));
+      expect(paused).toMatchObject({ status: "paused", lifecycleState: "paused" });
+    } finally { await work.stop(); }
+  });
+
+  it.each([
+    { resultJson: { executionRecovery: { kind: "bootstrap", providerWorkStarted: false } } },
+    { resultJson: { executionRecovery: { kind: "bootstrap", providerWorkStarted: true, preparationSettledAt: "2000-01-01T00:00:02Z" } } },
+    { runtimeMode: "native" },
+    { processStartedAt: new Date("2000-01-01T00:00:00Z") }, { sessionIdAfter: "provider-session" },
+  ])("keeps a settled-preparation pause held on contradictory evidence: %j", async patch => {
+    const { agent, run } = await settledPreparationFixture();
+    await db.update(heartbeatRuns).set(patch).where(eq(heartbeatRuns.id, run.id));
+    expect(await agentExecutionsHaveStopped(db, [agent.id])).toBe(false);
+  });
+
   it("does not mistake an unproven HTTP dispatch for a resource wait", async () => {
     const { agent, run } = await fixture("cancelled", "dispatching");
     const [changed] = await db.update(heartbeatRuns).set({ resultJson: null,
