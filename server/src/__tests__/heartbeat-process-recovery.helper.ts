@@ -18,6 +18,7 @@ import * as aiConnectionRuntime from "../services/ai-connection-runtime.js";
 import { forbidden, unprocessable } from "../errors.js";
 import { aiConnectionCredentialNotSharedFailure } from "../services/ai-connection-configuration-failure.js";
 import * as executionContinuation from "../services/execution-continuation.js";
+import { agentExecutionStopBlocker } from "../services/agent-execution-stop.js";
 import * as environmentOrchestrator from "../services/environment-run-orchestrator.js";
 import { remoteTerminationReceipt } from "../services/remote-execution-termination.js";
 import { legacyDispositionFingerprint, LEGACY_DISPOSITION_REPAIR_INSTRUCTION } from "../services/recovery/legacy-continuation.js";
@@ -2148,6 +2149,10 @@ describeEmbeddedPostgres(`heartbeat orphaned process recovery (part ${part}/4)`,
       )).toBe(false);
       const runs = await selectRecoveryRunsByAgent(agentId);
       expect(runs).toHaveLength(1);
+      // No adapter was entered and no process started, so pausing the agent
+      // must not wait forever for stop proof of this conversation-adapter run.
+      expect(await heartbeat.getRun(runId)).toMatchObject({ runtimeMode: "legacy", processPid: null, processGroupId: null });
+      expect(await agentExecutionStopBlocker(db, [agentId])).toBeNull();
     } finally {
       build.mockRestore();
     }

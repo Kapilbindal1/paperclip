@@ -466,6 +466,21 @@ export async function recordInterruptedPreparationContinuation(db: Db, run: Pick
 }
 
 /**
+ * The receipt `settleCancelledLegacyPreparation` (or its interrupted-native
+ * sibling) writes once the executor that owned the run has unwound without
+ * entering the adapter and every retained execution reference agrees. Only
+ * those owner-proof writers stamp `preparationSettledAt`; a bare bootstrap
+ * classification without it is not stop proof.
+ */
+export function hasSettledLegacyPreparationReceipt(run: Pick<Run,
+  "runtimeMode" | "resultJson" | "processPid" | "processGroupId" | "processStartedAt" | "sessionIdAfter">): boolean {
+  const recovery = run.resultJson?.executionRecovery as Record<string, unknown> | undefined;
+  return run.runtimeMode === "legacy" && recovery?.kind === "bootstrap" && recovery.providerWorkStarted === false &&
+    typeof recovery.preparationSettledAt === "string" &&
+    !run.processPid && !run.processGroupId && !run.processStartedAt && !run.sessionIdAfter;
+}
+
+/**
  * The executor that owned a cancelled legacy run proves that its gated
  * dispatch never entered the adapter. Such a Stop (for example a subtree pause
  * during workspace preparation) left no provider actions to reconcile, so the
